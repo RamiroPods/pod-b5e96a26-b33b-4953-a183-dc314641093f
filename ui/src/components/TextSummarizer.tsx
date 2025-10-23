@@ -248,7 +248,7 @@ export function TextSummarizer() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900">
-                Text Summarizer
+                Text Summarizer Streaming
               </h1>
               <p className="text-gray-600">
                 Transform long texts into concise summaries using Writer AI
