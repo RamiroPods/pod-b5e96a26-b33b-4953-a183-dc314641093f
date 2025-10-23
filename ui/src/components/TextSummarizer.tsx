@@ -1,97 +1,111 @@
-import { useState } from 'react'
-import { Button } from './ui/button'
-import { Textarea } from './ui/textarea'
-import { FileText, Sparkles, Copy, Download, RotateCcw, AlertCircle } from 'lucide-react'
-import { API_ENDPOINTS } from '../config/api'
+import { useState } from "react";
+import { Button } from "./ui/button";
+import { Textarea } from "./ui/textarea";
+import {
+  FileText,
+  Sparkles,
+  Copy,
+  Download,
+  RotateCcw,
+  AlertCircle,
+} from "lucide-react";
+import { API_ENDPOINTS } from "../config/api";
 
 interface Summary {
-  id: string
-  originalText: string
-  summary: string
-  timestamp: Date
+  id: string;
+  originalText: string;
+  summary: string;
+  timestamp: Date;
   wordCount: {
-    original: number
-    summary: number
-  }
-  compressionRatio: number
-  style: string
+    original: number;
+    summary: number;
+  };
+  compressionRatio: number;
+  style: string;
 }
 
 interface ApiResponse {
-  summary: string
-  original_word_count: number
-  summary_word_count: number
-  compression_ratio: number
+  summary: string;
+  original_word_count: number;
+  summary_word_count: number;
+  compression_ratio: number;
 }
 
 interface ApiError {
-  detail: string
+  detail: string;
 }
 
 export function TextSummarizer() {
-  const [inputText, setInputText] = useState('')
-  const [isLoading, setIsLoading] = useState(false)
-  const [summaries, setSummaries] = useState<Summary[]>([])
-  const [selectedSummary, setSelectedSummary] = useState<Summary | null>(null)
-  const [summaryStyle, setSummaryStyle] = useState<'concise' | 'detailed' | 'bullet_points'>('concise')
-  const [error, setError] = useState<string | null>(null)
-  const [useStreaming, setUseStreaming] = useState(true)
-  const [streamingText, setStreamingText] = useState('')
+  const [inputText, setInputText] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [selectedSummary, setSelectedSummary] = useState<Summary | null>(null);
+  const [summaryStyle, setSummaryStyle] = useState<
+    "concise" | "detailed" | "bullet_points"
+  >("concise");
+  const [error, setError] = useState<string | null>(null);
+  const [useStreaming, setUseStreaming] = useState(true);
+  const [streamingText, setStreamingText] = useState("");
 
   const countWords = (text: string): number => {
-    return text.trim().split(/\s+/).filter(word => word.length > 0).length
-  }
+    return text
+      .trim()
+      .split(/\s+/)
+      .filter((word) => word.length > 0).length;
+  };
 
   const generateSummaryStreaming = async () => {
-    if (!inputText.trim()) return
+    if (!inputText.trim()) return;
 
-    setIsLoading(true)
-    setError(null)
-    setStreamingText('')
+    setIsLoading(true);
+    setError(null);
+    setStreamingText("");
 
     try {
       const response = await fetch(`${API_ENDPOINTS.SUMMARIZE}/stream`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           text: inputText,
           style: summaryStyle,
-          max_length: 500
+          max_length: 500,
         }),
-      })
+      });
 
       if (!response.ok) {
-        const errorData: ApiError = await response.json()
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+        const errorData: ApiError = await response.json();
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
       }
 
-      const reader = response.body?.getReader()
-      const decoder = new TextDecoder()
-      let accumulatedText = ''
-      
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      let accumulatedText = "";
+
       if (!reader) {
-        throw new Error('Failed to get response reader')
+        throw new Error("Failed to get response reader");
       }
 
       while (true) {
-        const { done, value } = await reader.read()
-        
-        if (done) break
+        const { done, value } = await reader.read();
 
-        const chunk = decoder.decode(value, { stream: true })
-        const lines = chunk.split('\n')
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
 
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             try {
-              const data = JSON.parse(line.substring(6))
-              
-              if (data.type === 'chunk') {
-                accumulatedText += data.content
-                setStreamingText(accumulatedText)
-              } else if (data.type === 'complete') {
+              const data = JSON.parse(line.substring(6));
+
+              if (data.type === "chunk") {
+                accumulatedText += data.content;
+                setStreamingText(accumulatedText);
+              } else if (data.type === "complete") {
                 const newSummary: Summary = {
                   id: Date.now().toString(),
                   originalText: inputText,
@@ -99,61 +113,65 @@ export function TextSummarizer() {
                   timestamp: new Date(),
                   wordCount: {
                     original: data.original_word_count,
-                    summary: data.summary_word_count
+                    summary: data.summary_word_count,
                   },
                   compressionRatio: data.compression_ratio,
-                  style: summaryStyle
-                }
+                  style: summaryStyle,
+                };
 
-                setSummaries(prev => [newSummary, ...prev])
-                setSelectedSummary(newSummary)
-                setStreamingText('')
-              } else if (data.type === 'error') {
-                throw new Error(data.message)
+                setSummaries((prev) => [newSummary, ...prev]);
+                setSelectedSummary(newSummary);
+                setStreamingText("");
+              } else if (data.type === "error") {
+                throw new Error(data.message);
               }
             } catch (parseError) {
               // Ignore parse errors for incomplete JSON chunks
               if (parseError instanceof SyntaxError && line.length > 6) {
-                console.debug('Skipping incomplete JSON chunk')
+                console.debug("Skipping incomplete JSON chunk");
               }
             }
           }
         }
       }
     } catch (err) {
-      console.error('Error generating summary:', err)
-      setError(err instanceof Error ? err.message : 'Failed to generate summary')
-      setStreamingText('')
+      console.error("Error generating summary:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to generate summary"
+      );
+      setStreamingText("");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const generateSummary = async () => {
-    if (!inputText.trim()) return
+    if (!inputText.trim()) return;
 
-    setIsLoading(true)
-    setError(null)
+    setIsLoading(true);
+    setError(null);
 
     try {
       const response = await fetch(API_ENDPOINTS.SUMMARIZE, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           text: inputText,
           style: summaryStyle,
-          max_length: 500
+          max_length: 500,
         }),
-      })
+      });
 
       if (!response.ok) {
-        const errorData: ApiError = await response.json()
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`)
+        const errorData: ApiError = await response.json();
+        throw new Error(
+          errorData.detail || `HTTP error! status: ${response.status}`
+        );
       }
 
-      const data: ApiResponse = await response.json()
+      const data: ApiResponse = await response.json();
 
       const newSummary: Summary = {
         id: Date.now().toString(),
@@ -162,52 +180,62 @@ export function TextSummarizer() {
         timestamp: new Date(),
         wordCount: {
           original: data.original_word_count,
-          summary: data.summary_word_count
+          summary: data.summary_word_count,
         },
         compressionRatio: data.compression_ratio,
-        style: summaryStyle
-      }
+        style: summaryStyle,
+      };
 
-      setSummaries(prev => [newSummary, ...prev])
-      setSelectedSummary(newSummary)
+      setSummaries((prev) => [newSummary, ...prev]);
+      setSelectedSummary(newSummary);
     } catch (err) {
-      console.error('Error generating summary:', err)
-      setError(err instanceof Error ? err.message : 'Failed to generate summary')
+      console.error("Error generating summary:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to generate summary"
+      );
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
+    navigator.clipboard.writeText(text);
     // You could add a toast notification here
-  }
+  };
 
   const downloadSummary = (summary: Summary) => {
-    const content = `Original Text (${summary.wordCount.original} words):\n${summary.originalText}\n\nSummary (${summary.wordCount.summary} words, ${summary.style} style):\n${summary.summary}\n\nCompression: ${summary.compressionRatio}%\nGenerated on: ${summary.timestamp.toLocaleString()}`
-    const blob = new Blob([content], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `summary-${summary.style}-${summary.timestamp.toISOString().split('T')[0]}.txt`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-  }
+    const content = `Original Text (${summary.wordCount.original} words):\n${
+      summary.originalText
+    }\n\nSummary (${summary.wordCount.summary} words, ${
+      summary.style
+    } style):\n${summary.summary}\n\nCompression: ${
+      summary.compressionRatio
+    }%\nGenerated on: ${summary.timestamp.toLocaleString()}`;
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `summary-${summary.style}-${
+      summary.timestamp.toISOString().split("T")[0]
+    }.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   const clearAll = () => {
-    setInputText('')
-    setSummaries([])
-    setSelectedSummary(null)
-    setError(null)
-  }
+    setInputText("");
+    setSummaries([]);
+    setSelectedSummary(null);
+    setError(null);
+  };
 
   const retryLastSummary = () => {
     if (inputText.trim()) {
-      generateSummary()
+      generateSummary();
     }
-  }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -219,8 +247,12 @@ export function TextSummarizer() {
               <FileText className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Text Summarizer</h1>
-              <p className="text-gray-600">Transform long texts into concise summaries using Writer AI</p>
+              <h1 className="text-2xl font-bold text-gray-900">
+                Text Summarizer
+              </h1>
+              <p className="text-gray-600">
+                Transform long texts into concise summaries using Writer AI
+              </p>
             </div>
           </div>
         </div>
@@ -232,7 +264,9 @@ export function TextSummarizer() {
           <div className="space-y-4">
             <div className="bg-white rounded-lg border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">Input Text</h2>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Input Text
+                </h2>
                 <div className="text-sm text-gray-500">
                   {countWords(inputText)} words
                 </div>
@@ -253,9 +287,9 @@ export function TextSummarizer() {
                 </div>
                 <div className="flex space-x-2">
                   {[
-                    { value: 'concise' as const, label: 'Concise' },
-                    { value: 'detailed' as const, label: 'Detailed' },
-                    { value: 'bullet_points' as const, label: 'Bullet Points' }
+                    { value: "concise" as const, label: "Concise" },
+                    { value: "detailed" as const, label: "Detailed" },
+                    { value: "bullet_points" as const, label: "Bullet Points" },
                   ].map((style) => (
                     <button
                       key={style.value}
@@ -264,9 +298,9 @@ export function TextSummarizer() {
                       disabled={isLoading}
                       className={`px-3 py-1 text-sm rounded-md border transition-colors ${
                         summaryStyle === style.value
-                          ? 'bg-blue-500 text-white border-blue-500'
-                          : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                      } ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                          ? "bg-blue-500 text-white border-blue-500"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      } ${isLoading ? "opacity-50 cursor-not-allowed" : ""}`}
                     >
                       {style.label}
                     </button>
@@ -280,11 +314,14 @@ export function TextSummarizer() {
                   <div className="flex items-start">
                     <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 mr-2 flex-shrink-0" />
                     <div>
-                      <p className="text-sm text-red-800 font-medium">Error generating summary</p>
+                      <p className="text-sm text-red-800 font-medium">
+                        Error generating summary
+                      </p>
                       <p className="text-sm text-red-600 mt-1">{error}</p>
-                      {error.includes('WRITER_API_KEY') && (
+                      {error.includes("WRITER_API_KEY") && (
                         <p className="text-xs text-red-500 mt-2">
-                          Make sure the backend server is running with a valid Writer API key.
+                          Make sure the backend server is running with a valid
+                          Writer API key.
                         </p>
                       )}
                     </div>
@@ -319,14 +356,20 @@ export function TextSummarizer() {
 
               <div className="flex space-x-2">
                 <Button
-                  onClick={useStreaming ? generateSummaryStreaming : generateSummary}
-                  disabled={!inputText.trim() || isLoading || inputText.trim().length < 50}
+                  onClick={
+                    useStreaming ? generateSummaryStreaming : generateSummary
+                  }
+                  disabled={
+                    !inputText.trim() ||
+                    isLoading ||
+                    inputText.trim().length < 50
+                  }
                   className="flex-1"
                 >
                   {isLoading ? (
                     <>
                       <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                      {useStreaming ? 'Streaming...' : 'Summarizing...'}
+                      {useStreaming ? "Streaming..." : "Summarizing..."}
                     </>
                   ) : (
                     <>
@@ -347,7 +390,8 @@ export function TextSummarizer() {
 
               {inputText.trim().length > 0 && inputText.trim().length < 50 && (
                 <p className="text-sm text-amber-600 mt-2">
-                  Text must be at least 50 characters long ({inputText.trim().length}/50)
+                  Text must be at least 50 characters long (
+                  {inputText.trim().length}/50)
                 </p>
               )}
             </div>
@@ -355,15 +399,17 @@ export function TextSummarizer() {
 
           {/* Output Section */}
           <div className="space-y-4">
-            {(selectedSummary || streamingText) ? (
+            {selectedSummary || streamingText ? (
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">
-                      {streamingText ? 'Streaming Summary...' : 'Summary'}
+                      {streamingText ? "Streaming Summary..." : "Summary"}
                     </h2>
                     {selectedSummary && (
-                      <p className="text-sm text-gray-500 capitalize">{selectedSummary.style.replace('_', ' ')} style</p>
+                      <p className="text-sm text-gray-500 capitalize">
+                        {selectedSummary.style.replace("_", " ")} style
+                      </p>
                     )}
                   </div>
                   {selectedSummary && !streamingText && (
@@ -407,7 +453,9 @@ export function TextSummarizer() {
                       <div className="text-2xl font-bold text-gray-600">
                         {selectedSummary.wordCount.original}
                       </div>
-                      <div className="text-sm text-gray-600">Original Words</div>
+                      <div className="text-sm text-gray-600">
+                        Original Words
+                      </div>
                     </div>
                     <div className="bg-green-50 rounded-lg p-3">
                       <div className="text-2xl font-bold text-green-600">
@@ -422,9 +470,12 @@ export function TextSummarizer() {
               <div className="bg-white rounded-lg border border-gray-200 p-6">
                 <div className="text-center py-12">
                   <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">No Summary Yet</h3>
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    No Summary Yet
+                  </h3>
                   <p className="text-gray-500">
-                    Enter some text (at least 50 characters) and click "Generate Summary" to get started
+                    Enter some text (at least 50 characters) and click "Generate
+                    Summary" to get started
                   </p>
                   <div className="mt-4 text-sm text-gray-400">
                     <p>💡 Tip: Make sure the backend API is accessible</p>
@@ -436,7 +487,9 @@ export function TextSummarizer() {
             {/* History */}
             {summaries.length > 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Summaries</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                  Recent Summaries
+                </h3>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {summaries.map((summary) => (
                     <button
@@ -445,8 +498,8 @@ export function TextSummarizer() {
                       onClick={() => setSelectedSummary(summary)}
                       className={`w-full p-3 rounded-lg border cursor-pointer transition-colors text-left ${
                         selectedSummary?.id === summary.id
-                          ? 'border-blue-500 bg-blue-50'
-                          : 'border-gray-200 hover:bg-gray-50'
+                          ? "border-blue-500 bg-blue-50"
+                          : "border-gray-200 hover:bg-gray-50"
                       }`}
                     >
                       <div className="flex justify-between items-start">
@@ -455,13 +508,20 @@ export function TextSummarizer() {
                             {summary.originalText.substring(0, 60)}...
                           </p>
                           <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                            <span>{summary.wordCount.original} → {summary.wordCount.summary} words</span>
-                            <span className="capitalize">{summary.style.replace('_', ' ')}</span>
-                            <span>{summary.timestamp.toLocaleTimeString()}</span>
+                            <span>
+                              {summary.wordCount.original} →{" "}
+                              {summary.wordCount.summary} words
+                            </span>
+                            <span className="capitalize">
+                              {summary.style.replace("_", " ")}
+                            </span>
+                            <span>
+                              {summary.timestamp.toLocaleTimeString()}
+                            </span>
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -470,5 +530,5 @@ export function TextSummarizer() {
         </div>
       </div>
     </div>
-  )
-} 
+  );
+}
